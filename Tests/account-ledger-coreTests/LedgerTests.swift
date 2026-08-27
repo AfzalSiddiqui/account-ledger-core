@@ -102,3 +102,76 @@ final class LedgerTests: XCTestCase {
         XCTAssertEqual(ledger.entries[0], entry)
     }
 }
+
+extension LedgerTests {
+
+    func testAuthorizationUsesAvailableBalanceAfterHold() {
+        let account = Account(
+            id: "ACC-001",
+            currency: .AED
+        )
+
+        var ledger = Ledger()
+
+        ledger.append(
+            LedgerEntry(
+                id: "E1",
+                accountID: "ACC-001",
+                amount: Money(currency: .AED, minorUnits: 120000),
+                type: .credit,
+                valueDay: 1
+            )
+        )
+
+        ledger.append(
+            LedgerEntry(
+                id: "E2",
+                accountID: "ACC-001",
+                amount: Money(currency: .AED, minorUnits: -95000),
+                type: .debit,
+                valueDay: 1
+            )
+        )
+
+        let result = AuthorizationEngine().authorize(
+            id: "Auth-A",
+            account: account,
+            ledger: ledger,
+            holdAmount: Money(currency: .AED, minorUnits: 20000),
+            activeHolds: [],
+            throughDay: 2
+        )
+
+        XCTAssertEqual(result.state, .approved)
+    }
+
+    func testAuthorizationIsRejectedWhenHoldMakesAvailableBalanceNegative() {
+        let account = Account(
+            id: "ACC-001",
+            currency: .AED
+        )
+
+        var ledger = Ledger()
+
+        ledger.append(
+            LedgerEntry(
+                id: "E1",
+                accountID: "ACC-001",
+                amount: Money(currency: .AED, minorUnits: 25000),
+                type: .credit,
+                valueDay: 1
+            )
+        )
+
+        let result = AuthorizationEngine().authorize(
+            id: "Auth-B",
+            account: account,
+            ledger: ledger,
+            holdAmount: Money(currency: .AED, minorUnits: 30000),
+            activeHolds: [],
+            throughDay: 2
+        )
+
+        XCTAssertEqual(result.state, .rejected)
+    }
+}

@@ -12,22 +12,31 @@ struct TransactionProcessor {
     func post(
         _ transaction: Transaction,
         to ledger: inout Ledger
-    ) {
+    ) -> Bool {
         let entries = transaction.ledgerEntries()
 
-        let total = entries.reduce(
-            Money.zero(transaction.amount.currency)
-        ) {
-            $0.adding($1.amount)
+        guard entries.count == 2 else {
+            return false
         }
 
-        precondition(
-            total.minorUnits == 0,
-            "Double-entry transaction must balance"
-        )
-
-        for entry in entries {
-            ledger.append(entry)
+        guard entries[0].amount.currency == entries[1].amount.currency else {
+            return false
         }
+
+        guard entries[0].amount.minorUnits +
+              entries[1].amount.minorUnits == 0 else {
+            return false
+        }
+
+        guard !ledger.entries.contains(where: {
+            $0.sourceEventID == transaction.id
+        }) else {
+            return false
+        }
+
+        ledger.append(entries[0])
+        ledger.append(entries[1])
+
+        return true
     }
 }

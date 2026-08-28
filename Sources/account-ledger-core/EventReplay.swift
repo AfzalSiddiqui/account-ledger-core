@@ -96,14 +96,18 @@ struct EventReplay {
                 )
             }
 
-            // Fees are assessed against the closing ledger balance
-            // after all events booked on this day have been processed.
-            for account in accounts.values {
-                _ = overdraftFeeEngine.assess(
-                    for: account,
-                    throughDay: day,
-                    ledger: &ledger
-                )
+            // Fees are assessed retroactively for all days up to
+            // the current processing day. A back-dated debit (like E7)
+            // can make historical day balances negative, requiring
+            // cascading fee assessment.
+            for assessDay in 1...day {
+                for account in accounts.values {
+                    _ = overdraftFeeEngine.assess(
+                        for: account,
+                        throughDay: assessDay,
+                        ledger: &ledger
+                    )
+                }
             }
 
             var balances: [String: Money] = [:]

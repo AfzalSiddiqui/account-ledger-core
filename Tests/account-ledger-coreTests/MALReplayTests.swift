@@ -56,19 +56,8 @@ final class MALReplayTests: XCTestCase {
             25_000
         )
 
-        // After E7 is replayed, its value date is Day 2.
-        // Historical Day-2 balance becomes:
-        //
-        // 250 - 620 = -370 AED.
-        XCTAssertEqual(
-            result.ledger.balance(
-                for: account,
-                throughDay: 2
-            ).minorUnits,
-            -37_000
-        )
-
-        // Exactly one historical Day-2 overdraft fee.
+        // Exactly one historical Day-2 overdraft fee
+        // (assessed retroactively when E7 is processed on Day 5).
         let day2Fees = result.ledger.entries.filter {
             $0.accountID == account.id &&
             $0.valueDay == 2 &&
@@ -82,13 +71,22 @@ final class MALReplayTests: XCTestCase {
             -2_500
         )
 
-        // Day 3:
-        //
-        // 250 - 620 + 400 - 25 fee
-        // = 5 AED.
+        // E7 cascades: three total fees on Days 2, 4, 5.
+        let allFees = result.ledger.entries.filter {
+            $0.accountID == account.id &&
+            $0.sourceEventID?.hasPrefix("OVERDRAFT-FEE-") == true
+        }
+
+        XCTAssertEqual(allFees.count, 3)
+
+        let feeDays = Set(allFees.map { $0.valueDay })
+        XCTAssertEqual(feeDays, [2, 4, 5])
+
+        // Day 3 report is a snapshot taken during Day 3 processing,
+        // before E7 is booked (Day 5). Balance = 250 + 400 = 650.
         XCTAssertEqual(
             result.reports[2].balances[account.id]?.minorUnits,
-            500
+            65_000
         )
 
         // Auth-A is valid and settles for 185 AED.
@@ -120,18 +118,13 @@ final class MALReplayTests: XCTestCase {
 
         // E9 reverses E7.
         //
-        // Day-6 ledger:
+        // Day-6 report balance (snapshot):
         //
-        // 250
-        // +400
-        // -185
-        // -620
-        // -25 fee
-        // +620 reversal
-        // = 440 AED.
+        // 250 - 620 - 25(d2) + 400 - 185 - 25(d4) - 25(d5) + 620
+        // = 390 AED.
         XCTAssertEqual(
             result.reports[5].balances[account.id]?.minorUnits,
-            44_000
+            39_000
         )
 
         // The Day-2 fee remains append-only.

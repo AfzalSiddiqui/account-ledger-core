@@ -41,7 +41,7 @@ struct OverdraftFeeEngine {
                 currency: account.currency,
                 minorUnits: -fee.minorUnits
             ),
-            type: .debit,
+            type: .fee,
             valueDay: day,
             sourceEventID: sourceEventID
         )

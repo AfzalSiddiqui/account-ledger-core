@@ -47,6 +47,32 @@ struct SettlementEngine {
         )
     }
 
+    func settle(
+        id: String,
+        authorization: Authorization,
+        account: Account,
+        settlementAmount: Money
+    ) -> Settlement {
+
+        guard authorization.state == .approved else {
+            return Settlement(
+                id: id,
+                authorizationID: authorization.id,
+                accountID: account.id,
+                amount: Money.zero(account.currency),
+                state: .rejected
+            )
+        }
+
+        return Settlement(
+            id: id,
+            authorizationID: authorization.id,
+            accountID: account.id,
+            amount: settlementAmount,
+            state: .settled
+        )
+    }
+
     func ledgerEntry(
         for settlement: Settlement,
         valueDay: Int

@@ -201,75 +201,56 @@ Automatic fee rollback would require additional compensating fee-reversal entrie
 
 ---
 
-## 9. Reversal Does Not Modify the Original Entry
+## 9. Reversal Mechanics — Compensating Entry vs. Mutation
 
-**Ambiguity:** A reversal could modify the original entry or replace it with a new balance.
+**Ambiguity:** When E9 reverses E7, should the system (a) delete or modify E7's ledger entry, (b) mark E7 as "reversed" and exclude it from balance queries, or (c) append a new compensating entry?
 
-**Decision:** The original ledger entry remains unchanged.
+All three are valid approaches in different ledger systems. Option (a) is simplest but destroys audit history. Option (b) preserves history but requires every balance query to check a status flag, adding complexity. Option (c) keeps the ledger truly append-only but means both the original and the reversal coexist — the ledger grows rather than corrects.
 
-A reversal is represented by a new compensating entry.
+**Decision:** Option (c) — append a compensating entry.
 
-For E7:
+For E7/E9:
 
-- Original E7 = `-620.00 AED`
-- Reversal E9 = `+620.00 AED`
+- E7 = `-620.00 AED`, value day 2 (remains in ledger, unmodified)
+- E9 = `+620.00 AED`, value day 2 (new entry appended)
 
-Both entries remain in the ledger.
+The reversal in `ReversalEngine` (line 26) negates the original amount and flips the entry type (debit becomes credit). The original entry is passed by value, never mutated.
 
-This preserves the append-only audit trail.
+This choice has a cost: the Day 2 overdraft fee triggered by E7 is not automatically reversed. The fee entry `OVERDRAFT-FEE-ACC-001-DAY-2` persists because the fee engine assessed it when E7 made Day 2 negative, and appending E9 does not trigger fee removal. This is the gap documented by the deliberately failing test `testDay2BalanceRestoredAfterE9Reversal`.
 
----
-
-## 10. Rejected Authorization and Available Balance
-
-**Ambiguity:** Auth-B requests AED 90.00 on Day 5 while the available balance is insufficient.
-
-**Decision:** Auth-B is rejected.
-
-A rejected authorization:
-
-- Does not create a ledger debit.
-- Does not create an active hold.
-- Is recorded with `AuthorizationStatus.rejected`.
-- Produces an insufficient-available-balance error.
-
-Auth-B remains rejected in the final authorization state.
+A production system would need a fee-reversal workflow: when a reversal restores a day's balance to positive, generate compensating fee-credit entries for any fees that no longer apply. This was cut because cascading reversal of derived entries is a non-trivial workflow — you need to determine which fees were caused by the reversed entry vs. by other events, which is ambiguous when multiple debits overlap on the same day.
 
 ---
 
-## 11. Rejected Events and Ledger Mutation
+## 10. Rejected Events — No Ledger Mutation, But What Gets Recorded?
 
-**Ambiguity:** Should a rejected event still create a ledger entry?
+**Ambiguity:** Three events in the stream are rejected: E6 (unknown auth settlement), E8 (insufficient available balance for Auth-B), and arguably E7's fees after E9. The question is what artifact a rejected event leaves behind.
 
-**Decision:** No.
+Some systems record rejected events as zero-amount ledger entries for audit purposes. Others store them in a separate error log. The choice affects what an auditor sees when querying the ledger vs. querying the error log.
 
-Rejected settlements and rejected authorizations do not create unintended financial ledger entries.
+**Decision:** Rejected events create no ledger entries. They are recorded as structured errors with day, event ID, and reason.
 
 For the supplied stream:
 
-- E6 is rejected because Auth-Z is unknown.
-- E8 is rejected because Auth-B does not have sufficient available balance.
+- E6: `Day 4 [E6] Settlement rejected: unknown authorization Auth-Z` — no debit posted, no settlement record created
+- E8: Auth-B stored with `AuthorizationState.rejected` — no hold created, no debit posted
 
-Both events are represented through error/status information rather than financial ledger mutations.
+The trade-off: a regulator querying only the ledger would not see attempted-but-failed transactions. In production, the error log would need to be durable and auditable. CBUAE requires records of all attempts, not just successful postings. This is listed as a cut in the architecture document ("Durable audit trail").
 
 ---
 
 ## Summary
 
-The implementation follows these principles:
-
-1. Events are processed in booking-day order.
-2. Ledger entries retain their event value day.
-3. Historical balances use value day.
-4. Back-dated debits can trigger retroactive overdraft fees.
-5. Overdraft fees are deterministic and idempotent.
-6. Authorization holds affect available balance but not ledger balance.
-7. Settlements may be partial but cannot exceed the authorization amount.
-8. Unknown authorization settlements are rejected.
-9. Reversals create compensating entries rather than modifying originals.
-10. Overdraft fees remain after a reversal because the ledger is append-only.
-11. BHD instalments use integer minor units.
-12. The BHD remainder is assigned to the final instalment.
-13. Interest capitalization uses the completed Day-6 ledger state.
-14. Rejected events do not create unintended ledger entries.
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 1 | Retroactive fee assessment | Back-dated events change historical balances; fees must reflect current state |
+| 2 | Processing day vs. value day separation | Events process in booking order; ledger queries use value day |
+| 3 | Interest from completed ledger state | Incremental computation fails when back-dated events change historical balances |
+| 4 | BHD remainder on final instalment | Payment convention; exact total preserved |
+| 5 | Partial settlement valid | Settlement amount may be less than authorization |
+| 6 | Unknown auth settlement rejected | No ledger mutation for non-existent authorization |
+| 7 | Holds do not create ledger entries | Available balance is a view, not a ledger state |
+| 8 | Fees persist after reversal | Append-only ledger; fee-reversal requires explicit workflow |
+| 9 | Reversal appends compensating entry | Original entry preserved for audit; cost is fee persistence |
+| 10 | Rejected events produce errors, not entries | Ledger contains only successful postings; audit trail gap documented |
 

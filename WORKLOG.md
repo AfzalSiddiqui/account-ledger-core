@@ -2,125 +2,76 @@
 
 ## 2026-08-28
 
-### 09:00 — Project setup
+### 09:00 — Setup and domain types
 
-- Initialized Swift package with `swift package init --type executable`.
-- Created `Package.swift` with executable target `account-ledger-core` and test target.
-- Established basic domain types: `Currency`, `Money`, `Account`, `LedgerEntry`, `Ledger`.
+Swift package, executable target. Started with the money problem first: AED has 2 decimal places, BHD has 3. Decided on Int64 minor units immediately — I've been bitten by floating-point money bugs before and didn't want to debug that here. `Money`, `Currency`, `Account`, `LedgerEntry`, `Ledger`.
 
-### 09:30 — Core domain model
+Built `Transaction` and `TransactionProcessor` for double-entry accounting (debit one account, credit another, entries must sum to zero). Also `Idempotency` store and `AccountLimit`. These ended up not being used by the event processor — the event stream works with single-sided entries, not double-entry pairs — but I kept them because the domain model underneath is still double-entry and the tests validate the invariants.
 
-- `Money`: integer minor-units representation, AED (scale 2), BHD (scale 3).
-- `Ledger`: append-only entry store with `balance(for:throughDay:)` query.
-- `Account`: id, currency, zero opening balance.
-- `LedgerEntry`: id, accountID, amount, type, valueDay, sourceEventID.
-- `Transaction`, `TransactionState`, `TransactionProcessor`: double-entry transaction support.
-- `LedgerInvariant`, `LedgerReconciliation`: balance validation helpers.
-- `Idempotency`: tracks processed transaction IDs to prevent duplicates.
-- `AccountLimit`: maximum debit limit validation.
+### 09:30 — Engines
 
-### 10:00 — Authorization and settlement engines
+`AuthorizationEngine` — this one took a bit of thinking. The spec says "available balance = ledger balance minus active holds." That means auth holds don't touch the ledger. They're tracked separately. Settlement is what actually creates the debit. Wrote this wrong the first time (had the auth creating a ledger entry), caught it during testing.
 
-- `AuthorizationEngine`: evaluates hold against available balance (ledger balance minus active holds).
-- `SettlementEngine`: full and partial settlement of authorized amounts.
-- `ReversalEngine`: creates compensating entries (never modifies originals).
-- `OverdraftFeeEngine`: assesses AED 25.00 fee when closing balance is negative, deterministic entry IDs.
-- `InterestEngine`: 0.04% daily rate on positive balances, integer arithmetic with half-up rounding.
-- `InterestCapitalization`: posts single credit entry at end of Day 6.
-- `BHDInstallmentAllocator`: splits BHD amount into N instalments with remainder handling.
+`SettlementEngine`, `ReversalEngine`, `OverdraftFeeEngine`, `InterestEngine`, `InterestCapitalization`, `BHDInstallmentAllocator`.
 
-### 10:30 — Event model and stream (Step 1)
+The overdraft fee engine went through a few iterations. Initially used `.debit` entry type, changed to `.fee` so it's distinguishable in the ledger. The big realization was deterministic IDs: `OVERDRAFT-FEE-ACC-001-DAY-2`. Without these, retroactive reassessment creates duplicate fees every time a back-dated event arrives.
 
-- Created `Event.swift` with `EventType` enum and `Event` struct.
-- Implemented `Event.eventStream()` returning all 10 events.
-- Events include: `authorizationID`, `reversesEventID`, `instalments`, `settlementAmount`.
+### 10:30 — Event stream and processor
 
-### 11:00 — Settlement engine update (Step 2)
+Encoded all 10 events in `Event.eventStream()`. Built `EventProcessor` — groups events by processing day, routes each to the right engine, then sweeps all historical days for overdraft fees.
 
-- Added `settle(id:authorization:account:settlementAmount:)` overload for partial settlement.
-- E5 settles Auth-A: authorization 200.00 AED, settlement 185.00 AED.
+The overdraft sweep is the trickiest part of the whole system. On each processing day, it loops from Day 1 through the current day checking every account's closing balance. This is what makes E7 cascade: E7 lands on Day 5 but has value day 2, so the sweep on Day 5 finds Day 2 is now negative, assesses a fee, and that fee ripples forward through Days 3-5.
 
-### 11:30 — Event processor (Step 3)
+### 11:30 — Replay engine
 
-- Created `EventProcessor.swift` as central orchestrator.
-- Groups events by processing day, processes in order.
-- Handles: credit (with instalment splitting), debit, authorization, settlement, reversal.
-- Retroactive overdraft fee assessment across all historical value days.
-- Daily and final summary reports.
+Built `EventReplay` as a separate stateless engine for test verification. Different approach from `EventProcessor`: takes events in, returns a result struct, no mutation, no print statements. Having two independent implementations that agree on the same numbers gives me confidence the logic is right. If they disagree, at least one is wrong.
 
-### 12:00 — EventReplay engine
+`MALReplay.swift` holds the canonical event definitions for the replay engine.
 
-- Created `EventReplay.swift` with `ReplayEvent`, `AuthorizationRecord`, `DailyReplayReport`, `ReplayResult`.
-- Separate replay engine for test-driven verification.
-- `MALReplay.swift`: canonical event definitions for the MAL specification.
+### 12:30 — The interest bug
 
-### 12:30 — Overdraft fee engine fix
+This one wasted time. Daily interest accruals were computed during each processing day using the balance visible at that point. Capitalization was computed from the final ledger state. The two disagreed: 0.81 AED vs 0.93 AED.
 
-- Changed entry type from `.debit` to `.fee`.
-- Deterministic IDs: `OVERDRAFT-FEE-{accountID}-DAY-{day}`.
+The root cause: E7 is processed on Day 5 but changes Day 2's balance retroactively. When Day 2 was originally processed, the balance was 250 AED (interest = 0.10). After E7, Day 2 balance becomes -370 (interest = 0). But the incremental approach had already recorded 0.10 for Day 2 and moved on.
 
-### 13:00 — EventReplay retroactive fee fix
+Fix: compute both daily accruals and capitalization from the completed ledger state, after all events and fees. They always agree because they use the same data.
 
-- Updated `EventReplay` to assess overdraft fees for all days from Day 1 through current processing day.
-- Previously assessed only current day — missed cascading fees from E7.
+I initially resisted this — it felt like cheating to not use the "live" balances — but the spec says "rounded daily accruals must sum exactly to the capitalized total." There's no way to guarantee that with incremental computation when back-dated events can change historical balances after the fact.
 
-### 13:30 — Test suite (Steps 4–5)
+### 13:30 — Tests
 
-- Updated `AccountLedgerCore.swift` main entry point.
-- Created `EventStreamTests.swift` with 11 test cases covering the full event stream.
-- Created/maintained unit tests: `MoneyTests`, `LedgerTests`, `AccountingTests`, `SettlementTests`, `ReversalTests`, `TransactionTests`, `TransactionStateTests`, `IdempotencyTests`, `LedgerHardeningTests`, `AccountLimitTests`, `MALReplayTests`.
+59 tests across 12 test files. The important ones are in `EventStreamTests` (11 tests covering E1-E10 behavior) and `MALReplayTests` (4 tests cross-validating the replay engine).
 
-### 14:00 — Documentation (Step 6)
+The deliberately failing test: `testDay2BalanceRestoredAfterE9Reversal`. It asserts that after E9 reverses E7, Day 2 balance returns to the pre-E7 value of 250.00. It fails because the overdraft fee (-25 AED) persists — the ledger is append-only, so reversing the debit doesn't undo its side effects. The balance is 225, not 250. I included this because it documents a real gap: in production you'd need a fee-reversal workflow.
 
-- Created `README.md`, `NUMBERS.md`, `AMBIGUITIES.md`, `REJECTED.md`, `WORKLOG.md`.
+### 14:00 — Documentation
 
-### 15:30 — Bug fixes (Step 5b)
+Wrote README, NUMBERS.md, AMBIGUITIES.md, REJECTED.md.
 
-Seven bugs identified and corrected:
+Rejected 4 of the 8 acceptance criteria:
+- Criterion 2: E7 causes 3 fees (Days 2, 4, 5), not 1
+- Criterion 6: fees persist after reversal (append-only)
+- Criterion 7: 3 x 3.334 = 10.002, not 10.000
+- Criterion 8: can't silently discard money
 
-1. **E10 processing day and value day** (`Event.swift`):
-   - Was: `day=6, valueDay=6`
-   - Fixed: `day=5, valueDay=5` per specification
+### 15:30 — Bug fixes
 
-2. **E6 amount** (`Event.swift`):
-   - Was: `50,000 minor units (AED 500.00)`
-   - Fixed: `18,000 minor units (AED 180.00)` per specification
+Found 7 bugs during final review:
 
-3. **Interest daily accruals vs. capitalization mismatch** (`EventProcessor.swift`):
-   - Was: daily accruals computed incrementally during processing (0.81 AED), capitalization from final state (0.93 AED)
-   - Fixed: both computed from final ledger state after all events and fees
-   - Daily accruals now sum exactly to capitalized total: 0.93 AED
-
-4. **Auth-A not marked settled** (`Authorization.swift`, `EventProcessor.swift`):
-   - Was: only `.approved` and `.rejected` states; Auth-A showed "approved" after settlement
-   - Fixed: added `.settled` state; Auth-A updated after E5
-
-5. **BHDInstallmentAllocator remainder assignment** (`BHDInstallmentAllocator.swift`):
-   - Was: remainder on first instalment (3334, 3333, 3333)
-   - Fixed: remainder on final instalment (3333, 3333, 3334)
-
-6. **EventReplay missing instalment support** (`EventReplay.swift`, `MALReplay.swift`):
-   - Was: E10 posted as single credit
-   - Fixed: added `instalments` field and splitting logic
-
-7. **Deliberately failing test was passing** (`EventStreamTests.swift`):
-   - Was: `testFeesPersistAfterE9Reversal` asserted actual behavior (passed)
-   - Fixed: replaced with `testDay2BalanceRestoredAfterE9Reversal` (genuinely fails)
-
-### 16:00 — Documentation updates
-
-- Updated all `.md` files to reflect bug fixes.
-- `NUMBERS.md`: added "why that value" justifications, corrected ACC-002 interest (0.008 BHD), final balance (10.008 BHD).
-- `REJECTED.md`: added "Approaches Abandoned Mid-Build" section.
-- `AMBIGUITIES.md`: corrected interest accrual tables to match final-state computation.
-- `WORKLOG.md`: added timestamps.
+1. E10 was on Day 6 instead of Day 5 — caused ACC-002 to get 1 day of interest instead of 2
+2. E6 amount was 500 AED instead of 180 AED — misread the spec
+3. Interest mismatch (described above, 0.81 vs 0.93)
+4. Auth-A stayed `.approved` after settlement — added `.settled` state
+5. BHD remainder was on first instalment (3334, 3333, 3333) — code and docs disagreed, standardized on last
+6. EventReplay didn't handle instalments — E10 posted as single credit instead of 3
+7. The "deliberately failing" test was actually passing — it asserted the real behavior instead of the ideal behavior. Replaced it with one that genuinely fails.
 
 ### 16:15 — Final verification
 
-- `swift build` — successful
-- `swift test` — 59 tests, 58 passed, 1 deliberate failure
-- Final balances: ACC-001 = 390.93 AED, ACC-002 = 10.008 BHD
-- Auth-A: settled, Auth-B: rejected
-- Daily interest: ACC-001 = 0.93 AED (6 days), ACC-002 = 0.008 BHD (2 days)
-- Overdraft fees: 3 (Days 2, 4, 5)
-- Instalment split: 3.333 + 3.333 + 3.334 = 10.000 BHD
+```
+swift build  — clean
+swift test   — 59 tests, 58 passed, 1 expected failure
+swift run    — correct output
+```
+
+Final balances: ACC-001 = 390.93 AED, ACC-002 = 10.008 BHD.

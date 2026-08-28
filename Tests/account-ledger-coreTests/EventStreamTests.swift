@@ -252,6 +252,26 @@ final class EventStreamTests: XCTestCase {
         }
     }
 
+    func testE7ProducesThreeFeesWithCorrectValueDays() {
+        let processor = buildProcessor()
+
+        let feeEntries = processor.ledger.entries.filter { $0.type == .fee }
+
+        XCTAssertEqual(feeEntries.count, 3,
+                       "E7 should cause exactly 3 overdraft fees (Days 2, 4, 5)")
+
+        let valueDays = feeEntries.map { $0.valueDay }.sorted()
+        XCTAssertEqual(valueDays, [2, 4, 5],
+                       "Fees should be on value days 2, 4, and 5")
+
+        for fee in feeEntries {
+            XCTAssertEqual(fee.amount.minorUnits, -2_500,
+                           "Each overdraft fee should be -25.00 AED (2,500 fils)")
+            XCTAssertEqual(fee.accountID, "ACC-001",
+                           "All fees should be on ACC-001")
+        }
+    }
+
     // MARK: - Deliberate failing test (annotated)
 
     func testDay2BalanceRestoredAfterE9Reversal() {

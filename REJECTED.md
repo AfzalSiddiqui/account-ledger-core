@@ -151,14 +151,14 @@ These rejections are based on the event-stream behavior and the append-only ledg
 
 **Why abandoned:** The documentation stated "remainder is assigned to the final instalment," but the `BHDInstallmentAllocator` code assigned it to the first. The EventProcessor's inline splitting logic assigned it to the last. The two code paths were inconsistent. Standardized on final-instalment assignment to match the more common payment convention.
 
-### 3. Authorization without settled state
+### 3. Per-event overdraft fee assessment
 
-**Approach:** `AuthorizationState` had only `.approved` and `.rejected`. After settlement, Auth-A remained `.approved` in the final report.
+**Approach:** Assess an overdraft fee every time an event causes a negative balance, rather than once per day.
 
-**Why abandoned:** Settlement is a distinct lifecycle event. An authorization that has been settled is no longer "approved" — its hold has been released and funds have been debited. Leaving it as `.approved` in the final report was misleading. Added `.settled` to `AuthorizationState` so the report accurately reflects Auth-A's final disposition.
+**Why abandoned:** The specification says "assessed once per day per account." Per-event assessment would charge multiple fees if two debits land on the same day and both push the balance negative. Per-day assessment caps the penalty at one fee per day regardless of how many events cause the overdraft. The per-event model is harsher and not what the spec describes.
 
-### 4. E10 on processing Day 6
+### 4. Single replay engine
 
-**Approach:** Initially implemented E10 as `day=6, valueDay=6` in `Event.eventStream()`.
+**Approach:** Use only `EventProcessor` for both production output and test verification.
 
-**Why abandoned:** The specification states E10 is a Day 5 event. The parallel `MALReplay.events` already had it on Day 5. The discrepancy caused ACC-002 to receive interest for only 1 day instead of 2, producing the wrong final balance. Corrected to `day=5, valueDay=5`.
+**Why abandoned:** `EventProcessor` is a mutable struct that prints to stdout, tracks running state, and has side effects. Writing tests against it required capturing print output and parsing strings, which was fragile. Built `EventReplay` as a stateless alternative: takes events in, returns a `ReplayResult` struct with balances, fees, errors, and authorizations. Two independent implementations that agree on the same numbers is a stronger guarantee than one implementation tested against itself. The cost is maintaining two code paths, but for a six-day window it's manageable and the cross-validation caught two bugs during development.

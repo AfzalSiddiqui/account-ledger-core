@@ -13,6 +13,10 @@ struct OverdraftFeeEngine {
         throughDay day: Int,
         ledger: inout Ledger
     ) -> Bool {
+        guard account.currency == fee.currency else {
+            return false
+        }
+
         let balance = ledger.balance(
             for: account,
             throughDay: day

@@ -1,3 +1,10 @@
+//
+// Settlement.swift
+// account-ledger-core
+//
+// Created by Afzal on 28/08/2026.
+//
+
 import Foundation
 
 enum SettlementState: Equatable {

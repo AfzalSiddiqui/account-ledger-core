@@ -1,3 +1,10 @@
+//
+// LedgerEntry.swift
+// account-ledger-core
+//
+// Created by Afzal on 27/08/2026.
+//
+
 import Foundation
 
 enum LedgerEntryType: String, Equatable {

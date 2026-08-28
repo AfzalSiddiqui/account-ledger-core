@@ -132,3 +132,33 @@ The following four acceptance criteria are rejected:
 | 8 | Interest rounding remainders must not be silently discarded |
 
 These rejections are based on the event-stream behavior and the append-only ledger model implemented by the project.
+
+---
+
+## Approaches Abandoned Mid-Build
+
+### 1. Incremental daily interest accruals
+
+**Approach:** Record each day's interest accrual during that processing day, using the ledger state visible at processing time.
+
+**Why abandoned:** Back-dated events (E7) change historical balances after interest for those days was already recorded. This caused daily accruals to sum to 0.81 AED while the capitalization (computed from the final ledger) was 0.93 AED — violating the rule that "the rounded daily accruals must sum exactly to the capitalized total."
+
+**Replaced with:** Both daily accruals and capitalization are computed from the completed ledger state after all events and fees have been processed. This guarantees agreement.
+
+### 2. Remainder assigned to first instalment
+
+**Approach:** When splitting BHD 10.000 into three instalments, assign the 1-milli remainder to the first instalment (3.334, 3.333, 3.333).
+
+**Why abandoned:** The documentation stated "remainder is assigned to the final instalment," but the `BHDInstallmentAllocator` code assigned it to the first. The EventProcessor's inline splitting logic assigned it to the last. The two code paths were inconsistent. Standardized on final-instalment assignment to match the more common payment convention.
+
+### 3. Authorization without settled state
+
+**Approach:** `AuthorizationState` had only `.approved` and `.rejected`. After settlement, Auth-A remained `.approved` in the final report.
+
+**Why abandoned:** Settlement is a distinct lifecycle event. An authorization that has been settled is no longer "approved" — its hold has been released and funds have been debited. Leaving it as `.approved` in the final report was misleading. Added `.settled` to `AuthorizationState` so the report accurately reflects Auth-A's final disposition.
+
+### 4. E10 on processing Day 6
+
+**Approach:** Initially implemented E10 as `day=6, valueDay=6` in `Event.eventStream()`.
+
+**Why abandoned:** The specification states E10 is a Day 5 event. The parallel `MALReplay.events` already had it on Day 5. The discrepancy caused ACC-002 to receive interest for only 1 day instead of 2, producing the wrong final balance. Corrected to `day=5, valueDay=5`.

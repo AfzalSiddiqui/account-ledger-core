@@ -18,6 +18,7 @@ struct ReplayEvent {
     let authorizationID: String?
     let valueDay: Int
     let referencedEventID: String?
+    var instalments: Int? = nil
 }
 
 enum AuthorizationStatus: Equatable {
@@ -188,14 +189,35 @@ struct EventReplay {
                 return
             }
 
-            append(
-                id: event.id,
-                account: account,
-                amount: amount,
-                type: .credit,
-                valueDay: event.valueDay,
-                ledger: &ledger
-            )
+            if let count = event.instalments, count > 1 {
+                let base = amount.minorUnits / Int64(count)
+                var remaining = amount.minorUnits
+                for i in 0..<count {
+                    let isLast = (i == count - 1)
+                    let instalmentAmount = isLast ? remaining : base
+                    remaining -= instalmentAmount
+                    append(
+                        id: "\(event.id)-instalment-\(i + 1)",
+                        account: account,
+                        amount: Money(
+                            currency: amount.currency,
+                            minorUnits: instalmentAmount
+                        ),
+                        type: .credit,
+                        valueDay: event.valueDay,
+                        ledger: &ledger
+                    )
+                }
+            } else {
+                append(
+                    id: event.id,
+                    account: account,
+                    amount: amount,
+                    type: .credit,
+                    valueDay: event.valueDay,
+                    ledger: &ledger
+                )
+            }
 
         case .debit:
             guard let amount = event.amount else {

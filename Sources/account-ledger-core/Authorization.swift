@@ -10,13 +10,14 @@ import Foundation
 enum AuthorizationState: Equatable {
     case approved
     case rejected
+    case settled
 }
 
 struct Authorization {
     let id: String
     let accountID: String
     let amount: Money
-    let state: AuthorizationState
+    var state: AuthorizationState
 }
 
 struct AuthorizationEngine {

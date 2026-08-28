@@ -15,7 +15,7 @@ struct BHDInstallmentAllocator {
         return (0..<count).map { index in
             Money(
                 currency: .BHD,
-                minorUnits: base + (index == 0 ? remainder : 0)
+                minorUnits: base + (index == count - 1 ? remainder : 0)
             )
         }
     }

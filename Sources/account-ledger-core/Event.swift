@@ -109,13 +109,13 @@ struct Event {
                 settlementAmount: Money(currency: aed, minorUnits: 18_500)
             ),
 
-            // E6: Day 4 — Settlement of Auth-Z (unknown auth)
+            // E6: Day 4 — Settlement of Auth-Z (unknown auth) for AED 180.00
             Event(
                 id: "E6",
                 day: 4,
                 type: .settlement,
                 accountID: "ACC-001",
-                amount: Money(currency: aed, minorUnits: 50_000),
+                amount: Money(currency: aed, minorUnits: 18_000),
                 valueDay: 4,
                 authorizationID: "Auth-Z"
             ),
@@ -152,14 +152,14 @@ struct Event {
                 reversesEventID: "E7"
             ),
 
-            // E10: Day 6 — Credit BHD 10.000 in 3 instalments, value day 6
+            // E10: Day 5 — Credit BHD 10.000 in 3 instalments, value day 5
             Event(
                 id: "E10",
-                day: 6,
+                day: 5,
                 type: .credit,
                 accountID: "ACC-002",
                 amount: Money(currency: bhd, minorUnits: 10_000),
-                valueDay: 6,
+                valueDay: 5,
                 instalments: 3
             ),
         ]

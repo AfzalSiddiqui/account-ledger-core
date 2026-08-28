@@ -16,7 +16,7 @@ final class MALReplayTests: XCTestCase {
 
         XCTAssertEqual(
             installments.map(\.minorUnits),
-            [3_334, 3_333, 3_333]
+            [3_333, 3_333, 3_334]
         )
 
         XCTAssertEqual(

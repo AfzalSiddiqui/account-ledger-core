@@ -38,11 +38,11 @@ struct EventProcessor {
             }
 
             assessOverdraftFees(throughDay: day)
-            recordDailyInterest(forDay: day)
 
             printDayReport(day: day)
         }
 
+        computeFinalDailyInterest(throughDay: 6)
         capitalizeInterest(onDay: 6)
         printFinalSummary()
     }
@@ -207,6 +207,13 @@ struct EventProcessor {
             ledger.append(entry)
         }
 
+        authorizations[authID] = Authorization(
+            id: auth.id,
+            accountID: auth.accountID,
+            amount: auth.amount,
+            state: .settled
+        )
+
         releaseHold(
             accountID: event.accountID,
             amount: auth.amount
@@ -282,18 +289,21 @@ struct EventProcessor {
 
     // MARK: - Interest
 
-    private mutating func recordDailyInterest(forDay day: Int) {
+    private mutating func computeFinalDailyInterest(throughDay finalDay: Int) {
+        dailyInterestAccruals = [:]
         for (_, account) in accounts {
-            let accrual = interestEngine.dailyAccrual(
-                for: account,
-                throughDay: day,
-                ledger: ledger
-            )
-
-            if accrual.minorUnits > 0 {
-                dailyInterestAccruals[account.id, default: []].append(
-                    (day: day, amount: accrual)
+            for day in 1...finalDay {
+                let accrual = interestEngine.dailyAccrual(
+                    for: account,
+                    throughDay: day,
+                    ledger: ledger
                 )
+
+                if accrual.minorUnits > 0 {
+                    dailyInterestAccruals[account.id, default: []].append(
+                        (day: day, amount: accrual)
+                    )
+                }
             }
         }
     }

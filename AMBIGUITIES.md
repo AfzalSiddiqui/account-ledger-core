@@ -62,45 +62,36 @@ Daily interest accruals are calculated using the supported currency precision:
 - AED: 2 decimal places
 - BHD: 3 decimal places
 
-### Reported Daily Accruals
+### Daily Accruals
 
-For ACC-001, the implementation reports these daily accrual amounts:
+Both daily accruals and the capitalized total are computed from the completed ledger state after all events, fees, and reversals have been processed. This ensures they always agree.
 
-| Day | Daily Accrual |
-|---:|---:|
-| 1 | 0.10 AED |
-| 2 | 0.10 AED |
-| 3 | 0.26 AED |
-| 4 | 0.19 AED |
-| 6 | 0.16 AED |
-| **Reported total** | **0.81 AED** |
+For ACC-001:
 
-Therefore:
-
-`0.10 + 0.10 + 0.26 + 0.19 + 0.16 = 0.81 AED`
-
-### Capitalization Entry
-
-The completed ledger also contains the following Day-6 capitalization entry:
-
-`INTEREST-CAPITALIZATION-ACC-001-DAY-6 = 0.93 AED`
+| Day | Closing Balance | Daily Accrual |
+|---:|---:|---:|
+| 1 | 250.00 AED | 0.10 AED |
+| 2 | 225.00 AED | 0.09 AED |
+| 3 | 625.00 AED | 0.25 AED |
+| 4 | 415.00 AED | 0.17 AED |
+| 5 | 390.00 AED | 0.16 AED |
+| 6 | 390.00 AED | 0.16 AED |
+| **Total** | | **0.93 AED** |
 
 For ACC-002:
 
-- Reported daily accrual = `0.004 BHD`
-- Capitalization entry = `0.004 BHD`
+| Day | Closing Balance | Daily Accrual |
+|---:|---:|---:|
+| 5 | 10.000 BHD | 0.004 BHD |
+| 6 | 10.000 BHD | 0.004 BHD |
+| **Total** | | **0.008 BHD** |
 
-### Implementation Behavior
+### Capitalization Entries
 
-The `0.81 AED` reported daily-accrual total and the `0.93 AED` capitalization entry are **not the same calculation/output** in the current implementation.
+- `INTEREST-CAPITALIZATION-ACC-001-DAY-6` = `0.93 AED`
+- `INTEREST-CAPITALIZATION-ACC-002-DAY-6` = `0.008 BHD`
 
-The `0.81 AED` value is the sum of the daily accrual values exposed by the reporting/tracking path. The `0.93 AED` value is the amount written as the final ACC-001 capitalization ledger entry.
-
-This difference is therefore documented as **current implementation behavior**, not as an intended financial rule or as evidence that interest should normally be capitalized differently from the reported daily accruals.
-
-Any future change that makes the capitalization amount equal to the sum of the reported daily accruals should update both the implementation and this documentation together.
-
-The important invariant for the current implementation is that the capitalization behavior is deterministic, uses the completed Day-6 ledger state, and preserves the configured currency precision.
+The sum of rounded daily accruals equals the capitalized total for each account, satisfying the non-negotiable rule.
 
 ## 4. BHD Instalment Remainder
 

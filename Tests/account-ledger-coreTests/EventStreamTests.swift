@@ -254,37 +254,39 @@ final class EventStreamTests: XCTestCase {
 
     // MARK: - Deliberate failing test (annotated)
 
-    func testFeesPersistAfterE9Reversal() {
+    func testDay2BalanceRestoredAfterE9Reversal() {
         // DELIBERATELY FAILING TEST
         //
-        // This test asserts that after E9 reverses E7, the overdraft
-        // fees caused by E7 should be automatically reversed as well.
+        // This test asserts that after E9 reverses E7, the Day 2 closing
+        // balance returns to its pre-E7 value of AED 250.00.
         //
-        // This FAILS because the ledger is append-only: fees are
-        // real entries that persist even when their triggering event
-        // is reversed. In production, a fee-reversal workflow with
-        // explicit compensating entries would be needed.
+        // This FAILS because the ledger is append-only: the overdraft fee
+        // posted on Day 2 (AED -25.00) due to E7 persists even after E9
+        // reverses E7. The actual Day 2 balance after E9 is:
         //
-        // Reveals that append-only design means cascading fee corrections
-        // require explicit compensating entries, not automatic rollback.
-        // In production, a fee-reversal workflow would be needed.
+        //   250 - 620 - 25 + 620 = 225.00 AED  (not 250.00)
+        //
+        // What this reveals:
+        //   Reversing a transaction does not undo its side effects.
+        //   The overdraft fee assessed on Day 2 due to E7's back-dated
+        //   debit remains in the append-only ledger. In production, a
+        //   separate fee-reversal workflow posting explicit compensating
+        //   entries would be needed. Without this, customers bear fees
+        //   for an overdraft period that was later undone — a real-world
+        //   gap between the simplified ledger model and production.
 
         let processor = buildProcessor()
+        let account = Account(id: "ACC-001", currency: .AED)
 
-        let feeEntries = processor.ledger.entries.filter {
-            $0.type == .fee && $0.accountID == "ACC-001"
-        }
+        let day2Balance = processor.ledger.balance(
+            for: account,
+            throughDay: 2
+        )
 
-        let reversalOfFees = processor.ledger.entries.filter { entry in
-            entry.type == .reversal && entry.accountID == "ACC-001" &&
-            feeEntries.contains(where: { fee in
-                entry.sourceEventID == fee.sourceEventID
-            })
-        }
-
-        // The ledger is append-only: reversing E7 does not automatically
-        // create compensating entries for previously posted overdraft fees.
-        XCTAssertEqual(feeEntries.count, 3)
-        XCTAssertEqual(reversalOfFees.count, 0)
+        // Pre-E7 Day 2 balance was 250.00 AED.
+        // After E9 reverses E7, the balance should ideally return to 250.00.
+        // But the Day 2 overdraft fee (AED -25.00) persists, leaving 225.00.
+        XCTAssertEqual(day2Balance.minorUnits, 25_000,
+                       "EXPECTED TO FAIL: Day 2 balance is 225.00 AED (not 250.00) because the overdraft fee persists in the append-only ledger")
     }
 }

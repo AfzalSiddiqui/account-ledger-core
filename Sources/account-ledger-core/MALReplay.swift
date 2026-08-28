@@ -129,7 +129,8 @@ enum MALReplay {
                 amount: Money(currency: bhd, minorUnits: 10_000),
                 authorizationID: nil,
                 valueDay: 5,
-                referencedEventID: nil
+                referencedEventID: nil,
+                instalments: 3
             )
         ]
     }()

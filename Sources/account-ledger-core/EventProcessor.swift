@@ -37,9 +37,11 @@ struct EventProcessor {
                 }
             }
 
+            let feesBeforeCount = ledger.entries.filter { $0.type == .fee }.count
             assessOverdraftFees(throughDay: day)
+            let newFees = Array(ledger.entries.filter { $0.type == .fee }.dropFirst(feesBeforeCount))
 
-            printDayReport(day: day)
+            printDayReport(day: day, feesAssessedThisDay: newFees)
         }
 
         computeFinalDailyInterest(throughDay: 6)
@@ -320,7 +322,7 @@ struct EventProcessor {
 
     // MARK: - Reporting
 
-    private func printDayReport(day: Int) {
+    private func printDayReport(day: Int, feesAssessedThisDay: [LedgerEntry]) {
         print("═══════════════════════════════════════")
         print("  Day \(day) Report")
         print("═══════════════════════════════════════")
@@ -343,13 +345,10 @@ struct EventProcessor {
             }
         }
 
-        let dayFees = ledger.entries.filter {
-            $0.type == .fee && $0.valueDay == day
-        }
-        if !dayFees.isEmpty {
+        if !feesAssessedThisDay.isEmpty {
             print("  Fees assessed:")
-            for fee in dayFees {
-                print("    \(fee.accountID): \(fee.amount)")
+            for fee in feesAssessedThisDay {
+                print("    \(fee.accountID): \(fee.amount) (value day \(fee.valueDay))")
             }
         }
 

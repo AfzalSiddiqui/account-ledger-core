@@ -272,29 +272,11 @@ final class EventStreamTests: XCTestCase {
         }
     }
 
-    // MARK: - Deliberate failing test (annotated)
+    // MARK: - Deliberate failing test
 
     func testDay2BalanceRestoredAfterE9Reversal() {
-        // DELIBERATELY FAILING TEST
-        //
-        // This test asserts that after E9 reverses E7, the Day 2 closing
-        // balance returns to its pre-E7 value of AED 250.00.
-        //
-        // This FAILS because the ledger is append-only: the overdraft fee
-        // posted on Day 2 (AED -25.00) due to E7 persists even after E9
-        // reverses E7. The actual Day 2 balance after E9 is:
-        //
-        //   250 - 620 - 25 + 620 = 225.00 AED  (not 250.00)
-        //
-        // What this reveals:
-        //   Reversing a transaction does not undo its side effects.
-        //   The overdraft fee assessed on Day 2 due to E7's back-dated
-        //   debit remains in the append-only ledger. In production, a
-        //   separate fee-reversal workflow posting explicit compensating
-        //   entries would be needed. Without this, customers bear fees
-        //   for an overdraft period that was later undone — a real-world
-        //   gap between the simplified ledger model and production.
-
+        // FAILS: reversal doesn't undo the overdraft fee.
+        // Actual Day 2 balance is 225, not 250. Need a fee-reversal workflow.
         let processor = buildProcessor()
         let account = Account(id: "ACC-001", currency: .AED)
 
@@ -303,10 +285,7 @@ final class EventStreamTests: XCTestCase {
             throughDay: 2
         )
 
-        // Pre-E7 Day 2 balance was 250.00 AED.
-        // After E9 reverses E7, the balance should ideally return to 250.00.
-        // But the Day 2 overdraft fee (AED -25.00) persists, leaving 225.00.
         XCTAssertEqual(day2Balance.minorUnits, 25_000,
-                       "EXPECTED TO FAIL: Day 2 balance is 225.00 AED (not 250.00) because the overdraft fee persists in the append-only ledger")
+                       "Day 2 balance is 225.00 (not 250.00) — fee persists after reversal")
     }
 }

@@ -17,6 +17,8 @@ struct EventProcessor {
     private(set) var dailyInterestAccruals: [String: [(day: Int, amount: Money)]] = [:]
     private var feeAssessedDays: [String: Set<Int>] = [:]
 
+    private var idempotency = IdempotencyStore()
+    private let instalmentAllocator = BHDInstallmentAllocator()
     private let overdraftFeeEngine = OverdraftFeeEngine()
     private let interestEngine = InterestEngine()
     private let authorizationEngine = AuthorizationEngine()
@@ -59,6 +61,10 @@ struct EventProcessor {
     }
 
     private mutating func processEvent(_ event: Event) {
+        guard idempotency.checkAndRecord(transactionID: event.id) else {
+            return
+        }
+
         switch event.type {
         case .credit:
             processCredit(event)
@@ -95,22 +101,27 @@ struct EventProcessor {
         _ event: Event,
         count: Int
     ) {
-        let totalMinor = event.amount.minorUnits
-        let perInstalment = totalMinor / Int64(count)
-        var remaining = totalMinor
+        let amounts: [Money]
 
-        for i in 0..<count {
-            let isLast = (i == count - 1)
-            let amount = isLast ? remaining : perInstalment
-            remaining -= amount
+        if event.amount.currency == .BHD {
+            amounts = instalmentAllocator.allocate(
+                total: event.amount, count: count
+            )
+        } else {
+            let base = event.amount.minorUnits / Int64(count)
+            var remaining = event.amount.minorUnits
+            amounts = (0..<count).map { i in
+                let amt = (i == count - 1) ? remaining : base
+                remaining -= amt
+                return Money(currency: event.amount.currency, minorUnits: amt)
+            }
+        }
 
+        for (i, amount) in amounts.enumerated() {
             let entry = LedgerEntry(
                 id: "\(event.id)-instalment-\(i + 1)",
                 accountID: event.accountID,
-                amount: Money(
-                    currency: event.amount.currency,
-                    minorUnits: amount
-                ),
+                amount: amount,
                 type: .credit,
                 valueDay: event.valueDay,
                 sourceEventID: event.id
